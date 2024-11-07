@@ -34,7 +34,7 @@ where
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
                 // change this code.
-                let reply = match msg.parse::<Command>() {
+                let reply = match msg.trim().parse::<Command>() {
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
                             let id = identifier_to_string(cell_identifier);
@@ -48,10 +48,9 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            let id = identifier_to_string(cell_identifier);
                             let expression = CellExpr::new(&cell_expr);
                             let mut test = HashMap::new();
-                            let _ = data.iter().for_each(|(key, value)| {
+                            data.iter().for_each(|(key, value)| {
                                 test.insert(
                                     identifier_to_string(*key),
                                     CellArgument::Value(value.clone()),
@@ -59,10 +58,8 @@ where
                             });
                             if let Ok(res) = expression.evaluate(&test) {
                                 data.insert(cell_identifier, res.clone());
-                                Reply::Value(id, res)
-                            } else {
-                                Reply::Value(id, CellValue::None)
                             }
+                            continue;
                         }
                     },
                     Err(e) => Reply::Error(e),
