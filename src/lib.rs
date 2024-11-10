@@ -54,49 +54,7 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            evaluate_expression(cell_identifier, cell_expr, &mut data);
-                            // let expression = CellExpr::new(&cell_expr);
-                            // let mut vars = HashMap::new();
-                            // data.iter().for_each(|(key, value)| {
-                            //     vars.insert(
-                            //         identifier_to_string(*key),
-                            //         CellArgument::Value(value.clone().value),
-                            //     );
-                            // });
-                            // let dep: HashSet<_> = expression
-                            //     .find_variable_names()
-                            //     .into_iter()
-                            //     .map(|var| var.parse::<CellIdentifier>().unwrap())
-                            //     .collect();
-                            // if let Ok(res) = expression.evaluate(&vars) {
-                            //     data.insert(
-                            //         cell_identifier,
-                            //         Value {
-                            //             value: res.clone(),
-                            //             dep,
-                            //             expression: cell_expr,
-                            //         },
-                            //     );
-                            //     data.iter()
-                            //         .filter(|(_, value)| value.dep.contains(&cell_identifier))
-                            //         .for_each(|(id, val)| {
-                            //             // need to have an evaluate function
-                            //             // Can do this in another thread
-                            //             // let expression = CellExpr::new(&val.expression);
-                            //             // let mut vars = HashMap::new();
-                            //             // expression.evaluate(&vars);
-                            //             // data.iter().for_each(|(key, value)| {
-                            //             //     vars.insert(
-                            //             //         identifier_to_string(*key),
-                            //             //         CellArgument::Value(value.clone().value),
-                            //             //     );
-                            //             // });
-                            //             // if let Ok(res) = expression.evaluate(&vars) {
-                            //             //     val.value = res.clone();
-                            //             // }
-                            //         });
-                            // }
-                            // dbg!(data.clone());
+                            set_expression(cell_identifier, cell_expr, &mut data);
                             continue;
                         }
                     },
@@ -132,7 +90,7 @@ where
     Ok(())
 }
 
-fn evaluate_expression(
+fn set_expression(
     cell_identifier: CellIdentifier,
     cell_expr: String,
     data: &mut HashMap<CellIdentifier, Value>,
@@ -163,21 +121,7 @@ fn evaluate_expression(
             .iter()
             .filter(|(_, value)| value.dep.contains(&cell_identifier))
             .for_each(|(id, val)| {
-                // need to have an evaluate function
-                // Can do this in another thread
-                evaluate_expression(*id, val.expression.clone(), data);
-                // let expression = CellExpr::new(&val.expression);
-                // let mut vars = HashMap::new();
-                // expression.evaluate(&vars);
-                // data.iter().for_each(|(key, value)| {
-                //     vars.insert(
-                //         identifier_to_string(*key),
-                //         CellArgument::Value(value.clone().value),
-                //     );
-                // });
-                // if let Ok(res) = expression.evaluate(&vars) {
-                //     val.value = res.clone();
-                // }
+                set_expression(*id, val.expression.clone(), data);
             });
     }
 }
