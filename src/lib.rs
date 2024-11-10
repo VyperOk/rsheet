@@ -6,10 +6,17 @@ use rsheet_lib::connect::{
 };
 use rsheet_lib::replies::Reply;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
 use log::info;
+
+#[derive(Clone, Debug)]
+struct Value {
+    value: CellValue,
+    dep: HashSet<CellIdentifier>,
+    expression: String,
+}
 
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
@@ -24,8 +31,7 @@ where
             return Ok(());
         }
     };
-
-    let mut data: HashMap<CellIdentifier, CellValue> = HashMap::new();
+    let mut data: HashMap<CellIdentifier, Value> = HashMap::new();
     loop {
         info!("Just got message");
         match recv.read_message() {
@@ -39,7 +45,7 @@ where
                         Command::Get { cell_identifier } => {
                             let id = identifier_to_string(cell_identifier);
                             if let Some(value) = data.get(&cell_identifier) {
-                                Reply::Value(id, value.clone())
+                                Reply::Value(id, value.clone().value)
                             } else {
                                 Reply::Value(id, CellValue::None)
                             }
@@ -48,17 +54,49 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            let expression = CellExpr::new(&cell_expr);
-                            let mut test = HashMap::new();
-                            data.iter().for_each(|(key, value)| {
-                                test.insert(
-                                    identifier_to_string(*key),
-                                    CellArgument::Value(value.clone()),
-                                );
-                            });
-                            if let Ok(res) = expression.evaluate(&test) {
-                                data.insert(cell_identifier, res.clone());
-                            }
+                            evaluate_expression(cell_identifier, cell_expr, &mut data);
+                            // let expression = CellExpr::new(&cell_expr);
+                            // let mut vars = HashMap::new();
+                            // data.iter().for_each(|(key, value)| {
+                            //     vars.insert(
+                            //         identifier_to_string(*key),
+                            //         CellArgument::Value(value.clone().value),
+                            //     );
+                            // });
+                            // let dep: HashSet<_> = expression
+                            //     .find_variable_names()
+                            //     .into_iter()
+                            //     .map(|var| var.parse::<CellIdentifier>().unwrap())
+                            //     .collect();
+                            // if let Ok(res) = expression.evaluate(&vars) {
+                            //     data.insert(
+                            //         cell_identifier,
+                            //         Value {
+                            //             value: res.clone(),
+                            //             dep,
+                            //             expression: cell_expr,
+                            //         },
+                            //     );
+                            //     data.iter()
+                            //         .filter(|(_, value)| value.dep.contains(&cell_identifier))
+                            //         .for_each(|(id, val)| {
+                            //             // need to have an evaluate function
+                            //             // Can do this in another thread
+                            //             // let expression = CellExpr::new(&val.expression);
+                            //             // let mut vars = HashMap::new();
+                            //             // expression.evaluate(&vars);
+                            //             // data.iter().for_each(|(key, value)| {
+                            //             //     vars.insert(
+                            //             //         identifier_to_string(*key),
+                            //             //         CellArgument::Value(value.clone().value),
+                            //             //     );
+                            //             // });
+                            //             // if let Ok(res) = expression.evaluate(&vars) {
+                            //             //     val.value = res.clone();
+                            //             // }
+                            //         });
+                            // }
+                            // dbg!(data.clone());
                             continue;
                         }
                     },
@@ -92,6 +130,56 @@ where
         }
     }
     Ok(())
+}
+
+fn evaluate_expression(
+    cell_identifier: CellIdentifier,
+    cell_expr: String,
+    data: &mut HashMap<CellIdentifier, Value>,
+) {
+    let expression = CellExpr::new(&cell_expr);
+    let mut vars = HashMap::new();
+    data.iter().for_each(|(key, value)| {
+        vars.insert(
+            identifier_to_string(*key),
+            CellArgument::Value(value.clone().value),
+        );
+    });
+    let dep: HashSet<_> = expression
+        .find_variable_names()
+        .into_iter()
+        .map(|var| var.parse::<CellIdentifier>().unwrap())
+        .collect();
+    if let Ok(res) = expression.evaluate(&vars) {
+        data.insert(
+            cell_identifier,
+            Value {
+                value: res.clone(),
+                dep,
+                expression: cell_expr,
+            },
+        );
+        data.clone()
+            .iter()
+            .filter(|(_, value)| value.dep.contains(&cell_identifier))
+            .for_each(|(id, val)| {
+                // need to have an evaluate function
+                // Can do this in another thread
+                evaluate_expression(*id, val.expression.clone(), data);
+                // let expression = CellExpr::new(&val.expression);
+                // let mut vars = HashMap::new();
+                // expression.evaluate(&vars);
+                // data.iter().for_each(|(key, value)| {
+                //     vars.insert(
+                //         identifier_to_string(*key),
+                //         CellArgument::Value(value.clone().value),
+                //     );
+                // });
+                // if let Ok(res) = expression.evaluate(&vars) {
+                //     val.value = res.clone();
+                // }
+            });
+    }
 }
 
 fn identifier_to_string(id: CellIdentifier) -> String {
