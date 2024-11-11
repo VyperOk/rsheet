@@ -18,6 +18,7 @@ struct Value {
     expression: String,
 }
 
+// This should be all working except concurrency isnt done
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
     M: Manager,
@@ -58,7 +59,7 @@ where
                             continue;
                         }
                     },
-                    Err(e) => Reply::Error(e),
+                    Err(_) => Reply::Error(String::from("Invalid key provided")),
                 };
 
                 match send.write_message(reply) {
@@ -96,33 +97,149 @@ fn set_expression(
     data: &mut HashMap<CellIdentifier, Value>,
 ) {
     let expression = CellExpr::new(&cell_expr);
-    let mut vars = HashMap::new();
-    data.iter().for_each(|(key, value)| {
-        vars.insert(
-            identifier_to_string(*key),
-            CellArgument::Value(value.clone().value),
-        );
-    });
-    let dep: HashSet<_> = expression
+    let mut variables_set = HashSet::new();
+    let mut vars_new: HashMap<String, CellArgument> = HashMap::new();
+    expression
         .find_variable_names()
         .into_iter()
-        .map(|var| var.parse::<CellIdentifier>().unwrap())
-        .collect();
-    if let Ok(res) = expression.evaluate(&vars) {
-        data.insert(
-            cell_identifier,
-            Value {
-                value: res.clone(),
-                dep,
-                expression: cell_expr,
-            },
-        );
-        data.clone()
-            .iter()
-            .filter(|(_, value)| value.dep.contains(&cell_identifier))
-            .for_each(|(id, val)| {
-                set_expression(*id, val.expression.clone(), data);
+        .for_each(|var| {
+            variables_set.insert(var);
+        });
+    // put into seperate function
+    variables_set.iter().for_each(|var| {
+        if var.contains("_") {
+            let mut ends = Vec::new();
+            var.split("_").into_iter().for_each(|elem| ends.push(elem));
+            if ends.len() == 2 {
+                let start = ends[0].parse::<CellIdentifier>().unwrap();
+                let end = ends[1].parse::<CellIdentifier>().unwrap();
+                // dbg!(start);
+                // dbg!(end);
+                if start.col == end.col && start.row != end.row {
+                    let mut args_vec: Vec<CellValue> = Vec::new();
+                    (start.row..end.row + 1).for_each(|row| {
+                        let res = data.get_key_value(&CellIdentifier {
+                            col: start.col,
+                            row,
+                        });
+                        match res {
+                            Some((_, value)) => args_vec.push(value.value.clone()),
+                            None => args_vec.push(CellValue::None),
+                        }
+                    });
+                    vars_new.insert(var.clone(), CellArgument::Vector(args_vec));
+                    // same col
+                } else if start.col != end.col && start.row == end.row {
+                    let mut args_vec: Vec<CellValue> = Vec::new();
+                    (start.col..end.col + 1).for_each(|col| {
+                        let res = data.get_key_value(&CellIdentifier {
+                            row: start.row,
+                            col,
+                        });
+                        match res {
+                            Some((_, value)) => args_vec.push(value.value.clone()),
+                            None => args_vec.push(CellValue::None),
+                        }
+                    });
+                    vars_new.insert(var.clone(), CellArgument::Vector(args_vec));
+                    // same row
+                } else {
+                    let mut args_matrix: Vec<Vec<CellValue>> = Vec::new();
+                    (start.col..end.col + 1).for_each(|col| {
+                        let mut args_vec: Vec<CellValue> = Vec::new();
+                        (start.row..end.row + 1).for_each(|row| {
+                            let (_, value) =
+                                data.get_key_value(&CellIdentifier { row, col }).unwrap();
+                            args_vec.push(value.value.clone());
+                        });
+                        args_matrix.push(args_vec);
+                    });
+                    vars_new.insert(var.clone(), CellArgument::Matrix(args_matrix));
+                    // matrix
+                }
+            }
+        } else {
+            let id = var.parse::<CellIdentifier>().unwrap();
+            let (_, value) = data.get_key_value(&id).unwrap();
+            vars_new.insert(var.clone(), CellArgument::Value(value.value.clone()));
+        }
+    });
+    // put into seperate function
+    let mut dep: HashSet<_> = HashSet::new();
+    variables_set.iter().for_each(|var| {
+        // HAVE TO TEST COL AND COMPLETE ROW AND MATRIX
+        if var.contains("_") {
+            // need to split and push all elements in
+            let mut ends = Vec::new();
+            var.split("_").into_iter().for_each(|elem| {
+                ends.push(elem);
             });
+            if ends.len() == 2 {
+                let start = ends[0].parse::<CellIdentifier>().unwrap();
+                let end = ends[1].parse::<CellIdentifier>().unwrap();
+                // have to push all dependencies into set
+                if start.col == end.col && start.row != end.row {
+                    // same col
+                    (start.row..end.row + 1).into_iter().for_each(|row| {
+                        dep.insert(CellIdentifier {
+                            col: start.col,
+                            row,
+                        });
+                    });
+                } else if start.col != end.col && start.row == end.row {
+                    // same row
+                    (start.col..end.col + 1).into_iter().for_each(|col| {
+                        dep.insert(CellIdentifier {
+                            col,
+                            row: start.row,
+                        });
+                    });
+                } else {
+                    (start.row..end.row + 1).into_iter().for_each(|row| {
+                        (start.col..end.col + 1).into_iter().for_each(|col| {
+                            dep.insert(CellIdentifier { col, row });
+                        });
+                    });
+                    // neither same row or col
+                }
+            }
+        } else {
+            dep.insert(var.parse::<CellIdentifier>().unwrap());
+        }
+    });
+    // set A1 sum(B1_B10)
+    // dbg!(vars.clone());
+    // dbg!(dep.clone());
+    // dbg!(cell_identifier);
+    // Maybe can make it not enter this if all dependencies aren't in var
+    if let Ok(res) = expression.evaluate(&vars_new) {
+        // dbg!(res.clone());
+        if let CellValue::Error(_error) = res {
+            // dbg!(error);
+            data.insert(
+                cell_identifier,
+                Value {
+                    value: CellValue::None,
+                    dep,
+                    expression: cell_expr,
+                },
+            );
+        } else {
+            data.insert(
+                cell_identifier,
+                Value {
+                    value: res,
+                    dep,
+                    expression: cell_expr,
+                },
+            );
+            data.clone()
+                .iter()
+                .filter(|(_, value)| value.dep.contains(&cell_identifier))
+                .for_each(|(id, val)| {
+                    set_expression(*id, val.expression.clone(), data);
+                });
+        }
     }
 }
 
