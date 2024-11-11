@@ -216,32 +216,20 @@ fn set_expression(
     // Maybe can make it not enter this if all dependencies aren't in var
     if let Ok(res) = expression.evaluate(&vars_new) {
         // dbg!(res.clone());
-        if let CellValue::Error(_error) = res {
-            // dbg!(error);
-            data.insert(
-                cell_identifier,
-                Value {
-                    value: CellValue::None,
-                    dep,
-                    expression: cell_expr,
-                },
-            );
-        } else {
-            data.insert(
-                cell_identifier,
-                Value {
-                    value: res,
-                    dep,
-                    expression: cell_expr,
-                },
-            );
-            data.clone()
-                .iter()
-                .filter(|(_, value)| value.dep.contains(&cell_identifier))
-                .for_each(|(id, val)| {
-                    set_expression(*id, val.expression.clone(), data);
-                });
-        }
+        data.insert(
+            cell_identifier,
+            Value {
+                value: res,
+                dep,
+                expression: cell_expr,
+            },
+        );
+        data.clone()
+            .iter()
+            .filter(|(_, value)| value.dep.contains(&cell_identifier))
+            .for_each(|(id, val)| {
+                set_expression(*id, val.expression.clone(), data);
+            });
     }
 }
 
