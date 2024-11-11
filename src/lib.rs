@@ -148,9 +148,11 @@ fn set_expression(
                     (start.col..end.col + 1).for_each(|col| {
                         let mut args_vec: Vec<CellValue> = Vec::new();
                         (start.row..end.row + 1).for_each(|row| {
-                            let (_, value) =
-                                data.get_key_value(&CellIdentifier { row, col }).unwrap();
-                            args_vec.push(value.value.clone());
+                            let res = data.get_key_value(&CellIdentifier { row, col });
+                            match res {
+                                Some((_, value)) => args_vec.push(value.value.clone()),
+                                None => args_vec.push(CellValue::None),
+                            }
                         });
                         args_matrix.push(args_vec);
                     });
