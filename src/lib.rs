@@ -45,7 +45,7 @@ where
                 let reply = match msg.trim().parse::<Command>() {
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
-                            let id = identifier_to_string(cell_identifier);
+                            let id = identifier_to_string(&cell_identifier);
                             if let Some(value) = data.get(&cell_identifier) {
                                 match &value.value {
                                     Ok(val) => Reply::Value(id, val.clone()),
@@ -95,22 +95,18 @@ where
     Ok(())
 }
 
+/// function that takes
+///     - the CellIdentifier used in the command e.g. the 'A1' in set A1 1
+///     - the expression string used in the command e.g. the 'sum(A1_B2) in set C1 sum(A1_B2)
+///     - the data is the entire dataset in the spreadsheet
+/// this function executes the set command
 fn set_expression(
     cell_identifier: CellIdentifier,
     cell_expr: String,
     data: &mut HashMap<CellIdentifier, Value>,
 ) {
-    let expression = CellExpr::new(&cell_expr);
-    let mut variables_set = HashSet::new();
-    expression
-        .find_variable_names()
-        .into_iter()
-        .for_each(|var| {
-            variables_set.insert(var);
-        });
-    // put into seperate function
+    let (expression, variables_set) = get_variables_set(&cell_expr);
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, data);
-    // put into seperate function
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
     match expression.evaluate(&vars) {
@@ -144,12 +140,39 @@ fn set_expression(
         }
     }
 }
+/// function that takes:
+///     - an expr which is the expression string from the user entered command.
+///       e.g. the 'sum(A1_B2)' in set C1 sum(A1_B2)
+/// returns a tuple of the CellExpr generated from the string,
+///         and all the variables used in the expression.
+fn get_variables_set(expr: &str) -> (CellExpr, HashSet<String>) {
+    let mut variables_set = HashSet::new();
+    let expression = CellExpr::new(expr);
+    expression
+        .find_variable_names()
+        .into_iter()
+        .for_each(|var| {
+            variables_set.insert(var);
+        });
+    (expression, variables_set)
+}
 
-fn identifier_to_string(id: CellIdentifier) -> String {
+/// function to convert CellIdentifier into a string
+/// e.g. from CellIdentifier {
+///     col: 0,
+///     row: 0,
+/// } to "A1"
+fn identifier_to_string(id: &CellIdentifier) -> String {
     let col = rsheet_lib::cells::column_number_to_name(id.col);
     format!("{}{}", col, id.row + 1)
 }
 
+/// function that takes in variables_set which is the set of variables present in an expression
+/// these have been extracted using the function find_variable_names from CellExpr in rsheet_lib.
+/// also takes in data which is the memory of the spreadsheet.
+/// returns a map of the arguments names and their associated value.
+/// arguments name instead of cell id as name could be value, scalar or matrix
+/// designed to be the argument in the function CellExpr::evaluate()
 fn get_vars(
     variables_set: &HashSet<String>,
     data: &mut HashMap<CellIdentifier, Value>,
@@ -163,81 +186,38 @@ fn get_vars(
                 let start = ends[0].parse::<CellIdentifier>().unwrap();
                 let end = ends[1].parse::<CellIdentifier>().unwrap();
                 if start.col == end.col && start.row != end.row {
-                    let mut args_vec: Vec<CellValue> = Vec::new();
-                    (start.row..=end.row).for_each(|row| {
-                        let res = data.get_key_value(&CellIdentifier {
-                            col: start.col,
-                            row,
-                        });
-                        match res {
-                            Some((_, value)) => {
-                                if let Ok(val) = &value.value {
-                                    args_vec.push(val.clone());
-                                }
-                            }
-                            None => args_vec.push(CellValue::None),
-                        }
-                    });
-                    vars.insert(var.clone(), CellArgument::Vector(args_vec));
                     // same col
+                    vars.insert(
+                        var.clone(),
+                        CellArgument::Vector(get_var_column_values(start, end, &data)),
+                    );
                 } else if start.col != end.col && start.row == end.row {
-                    let mut args_vec: Vec<CellValue> = Vec::new();
-                    (start.col..=end.col).for_each(|col| {
-                        let res = data.get_key_value(&CellIdentifier {
-                            row: start.row,
-                            col,
-                        });
-                        match res {
-                            Some((_, value)) => {
-                                if let Ok(val) = &value.value {
-                                    args_vec.push(val.clone())
-                                }
-                            }
-                            None => args_vec.push(CellValue::None),
-                        }
-                    });
-                    vars.insert(var.clone(), CellArgument::Vector(args_vec));
                     // same row
+                    vars.insert(
+                        var.clone(),
+                        CellArgument::Vector(get_var_row_values(start, end, &data)),
+                    );
                 } else {
-                    let mut args_matrix: Vec<Vec<CellValue>> = Vec::new();
-                    (start.col..=end.col).for_each(|col| {
-                        let mut args_vec: Vec<CellValue> = Vec::new();
-                        // seperate this again
-                        (start.row..=end.row).for_each(|row| {
-                            let res = data.get_key_value(&CellIdentifier { row, col });
-                            match res {
-                                Some((_, value)) => {
-                                    if let Ok(val) = &value.value {
-                                        args_vec.push(val.clone())
-                                    }
-                                }
-                                None => args_vec.push(CellValue::None),
-                            }
-                        });
-                        args_matrix.push(args_vec);
-                    });
-                    vars.insert(var.clone(), CellArgument::Matrix(args_matrix));
+                    vars.insert(
+                        var.clone(),
+                        CellArgument::Matrix(get_var_matrix_values(start, end, &data)),
+                    );
                     // matrix
                 }
             }
         } else {
-            let id = var.parse::<CellIdentifier>().unwrap();
-            let res = data.get_key_value(&id);
-            match res {
-                Some((_, value)) => {
-                    if let Ok(val) = &value.value {
-                        vars.insert(var.clone(), CellArgument::Value(val.clone()));
-                    }
-                }
-                None => {
-                    vars.insert(var.clone(), CellArgument::Value(CellValue::None));
-                }
-            }
+            vars.insert(
+                var.clone(),
+                CellArgument::Value(get_single_value(var, &data)),
+            );
         }
     });
     vars
 }
 
+/// function that takes in variables_set which is the set of variables present in an expression
+/// these have been extracted using the function find_variable_names from CellExpr in rsheet_lib.
+/// returns all the CellIdentifiers that the expression is dependent on
 fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> {
     let mut dep = HashSet::new();
     variables_set.iter().for_each(|var| {
@@ -246,10 +226,12 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
             var.split("_").into_iter().for_each(|elem| {
                 ends.push(elem);
             });
+            // variables_set ensures that each String will be valid.
+            // So either it has an _ and it has 2 elements or it doesnt and it have 1
             if ends.len() == 2 {
                 let start = ends[0].parse::<CellIdentifier>().unwrap();
                 let end = ends[1].parse::<CellIdentifier>().unwrap();
-                // have to push all dependencies into set
+                // have to insert all dependencies into set
                 if start.col == end.col && start.row != end.row {
                     // same col
                     (start.row..=end.row).into_iter().for_each(|row| {
@@ -280,4 +262,83 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
         }
     });
     dep
+}
+
+/// function that takes:
+///     - the start and end CellIdentifier in an expression of which the columns are equal
+///     - the entire dataset of the spreadsheet
+/// returns all of the values in the correct order in a Vec
+/// e.g returns that values of A1, A2 and A3 in a Vec for the expression set B1 sum(A1_A3)
+fn get_var_column_values(
+    start: CellIdentifier,
+    end: CellIdentifier,
+    data: &HashMap<CellIdentifier, Value>,
+) -> Vec<CellValue> {
+    (start.row..=end.row)
+        .map(|row| {
+            data.get(&CellIdentifier {
+                col: start.col,
+                row,
+            })
+            .and_then(|value| value.value.clone().ok())
+            .unwrap_or(CellValue::None)
+        })
+        .collect()
+}
+
+/// function that takes:
+///     - the start and end CellIdentifier in an expression of which the rows are equal
+///     - the entire dataset of the spreadsheet
+/// returns all of the values in the correct order in a Vec
+/// e.g returns that values of A1, B1 and C1 in a Vec for the expression set A2 sum(A1_C13)
+fn get_var_row_values(
+    start: CellIdentifier,
+    end: CellIdentifier,
+    data: &HashMap<CellIdentifier, Value>,
+) -> Vec<CellValue> {
+    (start.col..=end.col)
+        .map(|col| {
+            data.get(&CellIdentifier {
+                col,
+                row: start.row,
+            })
+            .and_then(|value| value.value.clone().ok())
+            .unwrap_or(CellValue::None)
+        })
+        .collect()
+}
+
+/// function that takes:
+///     - the start and end CellIdentifier in an expression of which neither the columns nor the rows are equal
+///     - the entire dataset of the spreadsheet
+/// returns all of the values in the correct order in a Vec of a Vec where the inner vec is the values of the rows
+/// e.g returns that values of A1, A2 and A3 in a Vec for the expression set B1 sum(A1_A3)
+fn get_var_matrix_values(
+    start: CellIdentifier,
+    end: CellIdentifier,
+    data: &HashMap<CellIdentifier, Value>,
+) -> Vec<Vec<CellValue>> {
+    (start.col..=end.col)
+        .map(|col| {
+            (start.row..=end.row)
+                .map(|row| {
+                    data.get(&CellIdentifier { col, row })
+                        .and_then(|value| value.value.clone().ok())
+                        .unwrap_or(CellValue::None)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// function that takes:
+///     - the Cell in the form of a &str
+///     - the entire dataset of the spreadsheet
+/// returns all of the values in the correct order in a Vec of a Vec where the inner vec is the values of the rows
+/// e.g returns that values of A1, A2 and A3 in a Vec for the expression set B1 sum(A1_A3)
+fn get_single_value(var: &str, data: &HashMap<CellIdentifier, Value>) -> CellValue {
+    var.parse::<CellIdentifier>()
+        .ok()
+        .and_then(|id| data.get(&id).and_then(|value| value.value.clone().ok()))
+        .unwrap_or(CellValue::None)
 }
