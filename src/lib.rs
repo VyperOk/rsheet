@@ -162,8 +162,15 @@ fn set_expression(
             }
         } else {
             let id = var.parse::<CellIdentifier>().unwrap();
-            let (_, value) = data.get_key_value(&id).unwrap();
-            vars_new.insert(var.clone(), CellArgument::Value(value.value.clone()));
+            let res = data.get_key_value(&id);
+            match res {
+                Some((_, value)) => {
+                    vars_new.insert(var.clone(), CellArgument::Value(value.value.clone()));
+                }
+                None => {
+                    vars_new.insert(var.clone(), CellArgument::Value(CellValue::None));
+                }
+            }
         }
     });
     // put into seperate function
