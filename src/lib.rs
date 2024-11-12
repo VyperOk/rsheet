@@ -13,7 +13,7 @@ use log::info;
 
 #[derive(Clone, Debug)]
 struct Value {
-    value: CellValue,
+    value: Result<CellValue, Reply>,
     dep: HashSet<CellIdentifier>,
     expression: String,
 }
@@ -34,6 +34,7 @@ where
     };
     let mut data: HashMap<CellIdentifier, Value> = HashMap::new();
     loop {
+        // dbg!(data.clone());
         info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
@@ -46,7 +47,10 @@ where
                         Command::Get { cell_identifier } => {
                             let id = identifier_to_string(cell_identifier);
                             if let Some(value) = data.get(&cell_identifier) {
-                                Reply::Value(id, value.clone().value)
+                                match &value.value {
+                                    Ok(val) => Reply::Value(id, val.clone()),
+                                    Err(error) => error.clone(),
+                                }
                             } else {
                                 Reply::Value(id, CellValue::None)
                             }
@@ -98,7 +102,7 @@ fn set_expression(
 ) {
     let expression = CellExpr::new(&cell_expr);
     let mut variables_set = HashSet::new();
-    let mut vars_new: HashMap<String, CellArgument> = HashMap::new();
+    let mut vars: HashMap<String, CellArgument> = HashMap::new();
     expression
         .find_variable_names()
         .into_iter()
@@ -123,11 +127,15 @@ fn set_expression(
                             row,
                         });
                         match res {
-                            Some((_, value)) => args_vec.push(value.value.clone()),
+                            Some((_, value)) => {
+                                if let Ok(val) = &value.value {
+                                    args_vec.push(val.clone());
+                                }
+                            }
                             None => args_vec.push(CellValue::None),
                         }
                     });
-                    vars_new.insert(var.clone(), CellArgument::Vector(args_vec));
+                    vars.insert(var.clone(), CellArgument::Vector(args_vec));
                     // same col
                 } else if start.col != end.col && start.row == end.row {
                     let mut args_vec: Vec<CellValue> = Vec::new();
@@ -137,11 +145,15 @@ fn set_expression(
                             col,
                         });
                         match res {
-                            Some((_, value)) => args_vec.push(value.value.clone()),
+                            Some((_, value)) => {
+                                if let Ok(val) = &value.value {
+                                    args_vec.push(val.clone())
+                                }
+                            }
                             None => args_vec.push(CellValue::None),
                         }
                     });
-                    vars_new.insert(var.clone(), CellArgument::Vector(args_vec));
+                    vars.insert(var.clone(), CellArgument::Vector(args_vec));
                     // same row
                 } else {
                     let mut args_matrix: Vec<Vec<CellValue>> = Vec::new();
@@ -150,13 +162,17 @@ fn set_expression(
                         (start.row..end.row + 1).for_each(|row| {
                             let res = data.get_key_value(&CellIdentifier { row, col });
                             match res {
-                                Some((_, value)) => args_vec.push(value.value.clone()),
+                                Some((_, value)) => {
+                                    if let Ok(val) = &value.value {
+                                        args_vec.push(val.clone())
+                                    }
+                                }
                                 None => args_vec.push(CellValue::None),
                             }
                         });
                         args_matrix.push(args_vec);
                     });
-                    vars_new.insert(var.clone(), CellArgument::Matrix(args_matrix));
+                    vars.insert(var.clone(), CellArgument::Matrix(args_matrix));
                     // matrix
                 }
             }
@@ -165,10 +181,12 @@ fn set_expression(
             let res = data.get_key_value(&id);
             match res {
                 Some((_, value)) => {
-                    vars_new.insert(var.clone(), CellArgument::Value(value.value.clone()));
+                    if let Ok(val) = &value.value {
+                        vars.insert(var.clone(), CellArgument::Value(val.clone()));
+                    }
                 }
                 None => {
-                    vars_new.insert(var.clone(), CellArgument::Value(CellValue::None));
+                    vars.insert(var.clone(), CellArgument::Value(CellValue::None));
                 }
             }
         }
@@ -221,22 +239,35 @@ fn set_expression(
     // dbg!(dep.clone());
     // dbg!(cell_identifier);
     // Maybe can make it not enter this if all dependencies aren't in var
-    if let Ok(res) = expression.evaluate(&vars_new) {
-        // dbg!(res.clone());
-        data.insert(
-            cell_identifier,
-            Value {
-                value: res,
-                dep,
-                expression: cell_expr,
-            },
-        );
-        data.clone()
-            .iter()
-            .filter(|(_, value)| value.dep.contains(&cell_identifier))
-            .for_each(|(id, val)| {
-                set_expression(*id, val.expression.clone(), data);
-            });
+    match expression.evaluate(&vars) {
+        Ok(res) => {
+            data.insert(
+                cell_identifier,
+                Value {
+                    value: Ok(res),
+                    dep,
+                    expression: cell_expr,
+                },
+            );
+            data.clone()
+                .iter()
+                .filter(|(_, value)| value.dep.contains(&cell_identifier))
+                .for_each(|(id, val)| {
+                    set_expression(*id, val.expression.clone(), data);
+                });
+        }
+        Err(_) => {
+            data.insert(
+                cell_identifier,
+                Value {
+                    value: Err(Reply::Error(String::from(
+                        "Error: Variable depends on value Error",
+                    ))),
+                    dep,
+                    expression: cell_expr,
+                },
+            );
+        }
     }
 }
 
