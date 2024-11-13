@@ -2,12 +2,13 @@ use rsheet_lib::cell_expr::{CellArgument, CellExpr};
 use rsheet_lib::cell_value::CellValue;
 use rsheet_lib::command::{CellIdentifier, Command};
 use rsheet_lib::connect::{
-    Connection, Manager, ReadMessageResult, Reader, WriteMessageResult, Writer,
+    Connection, Manager, ReadMessageResult, Reader, ReaderWriter, WriteMessageResult, Writer,
 };
 use rsheet_lib::replies::Reply;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::sync::{Arc, RwLock};
 
 use log::info;
 
@@ -19,20 +20,42 @@ struct Value {
 }
 
 // This should be all working except concurrency isnt done
-pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
+pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error + Send + Sync>>
 where
-    M: Manager,
+    M: Manager + Send + 'static,
 {
-    // This initiates a single client connection, and reads and writes messages
-    // indefinitely.
-    let (mut recv, mut send) = match manager.accept_new_connection() {
-        Connection::NewConnection { reader, writer } => (reader, writer),
-        Connection::NoMoreConnections => {
-            // There are no more new connections to accept.
-            return Ok(());
+    let data: Arc<RwLock<HashMap<CellIdentifier, Value>>> = Arc::new(RwLock::new(HashMap::new()));
+    let mut threads = Vec::new();
+    loop {
+        match manager.accept_new_connection() {
+            Connection::NewConnection { reader, writer } => {
+                let data = data.clone();
+                threads.push(std::thread::spawn(
+                    move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                        create_new_connection::<M>(reader, writer, data)
+                    },
+                ));
+            }
+            Connection::NoMoreConnections => {
+                break;
+            }
         }
-    };
-    let mut data: HashMap<CellIdentifier, Value> = HashMap::new();
+    }
+
+    for handle in threads {
+        handle.join().unwrap()?;
+    }
+    Ok(())
+}
+
+fn create_new_connection<M>(
+    mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
+    mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
+    data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+) -> Result<(), Box<dyn Error + Send + Sync>>
+where
+    M: Manager + Send + 'static,
+{
     loop {
         // dbg!(data.clone());
         info!("Just got message");
@@ -42,11 +65,14 @@ where
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
                 // change this code.
+                let data = data.clone();
                 let reply = match msg.trim().parse::<Command>() {
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
+                            // todo!();
                             let id = identifier_to_string(&cell_identifier);
-                            if let Some(value) = data.get(&cell_identifier) {
+                            let d = data.read().unwrap();
+                            if let Some(value) = d.get(&cell_identifier) {
                                 match &value.value {
                                     Ok(val) => Reply::Value(id, val.clone()),
                                     Err(error) => error.clone(),
@@ -59,7 +85,8 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            set_expression(cell_identifier, cell_expr, &mut data);
+                            // todo!();
+                            set_expression(cell_identifier, cell_expr, data);
                             continue;
                         }
                     },
@@ -103,15 +130,16 @@ where
 fn set_expression(
     cell_identifier: CellIdentifier,
     cell_expr: String,
-    data: &mut HashMap<CellIdentifier, Value>,
+    data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
     let (expression, variables_set) = get_variables_set(&cell_expr);
-    let vars: HashMap<String, CellArgument> = get_vars(&variables_set, data);
+    let mut d = data.write().unwrap();
+    let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
     match expression.evaluate(&vars) {
         Ok(res) => {
-            data.insert(
+            d.insert(
                 cell_identifier,
                 Value {
                     value: Ok(res),
@@ -119,15 +147,15 @@ fn set_expression(
                     expression: cell_expr,
                 },
             );
-            data.clone()
+            d.clone()
                 .iter()
                 .filter(|(_, value)| value.dep.contains(&cell_identifier))
                 .for_each(|(id, val)| {
-                    set_expression(*id, val.expression.clone(), data);
+                    set_expression(id.clone(), val.expression.clone(), data.clone());
                 });
         }
         Err(_) => {
-            data.insert(
+            d.insert(
                 cell_identifier,
                 Value {
                     value: Err(Reply::Error(String::from(
@@ -175,7 +203,7 @@ fn identifier_to_string(id: &CellIdentifier) -> String {
 /// designed to be the argument in the function CellExpr::evaluate()
 fn get_vars(
     variables_set: &HashSet<String>,
-    data: &mut HashMap<CellIdentifier, Value>,
+    data: &HashMap<CellIdentifier, Value>,
 ) -> HashMap<String, CellArgument> {
     let mut vars = HashMap::new();
     variables_set.iter().for_each(|var| {

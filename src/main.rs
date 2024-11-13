@@ -14,7 +14,7 @@ struct Args {
     mark_mode: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     env_logger::init();
 
     let args = Args::parse();
