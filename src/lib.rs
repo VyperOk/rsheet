@@ -227,6 +227,8 @@ fn get_vars(
         if var.contains("_") {
             let mut ends = Vec::new();
             var.split("_").into_iter().for_each(|elem| ends.push(elem));
+            // variables_set ensures that each String will be valid.
+            // So either it has an _ and it has 2 elements or it doesnt and it have 1
             if ends.len() == 2 {
                 let start = ends[0].parse::<CellIdentifier>().unwrap();
                 let end = ends[1].parse::<CellIdentifier>().unwrap();
