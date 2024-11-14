@@ -28,20 +28,13 @@ where
 {
     let data: Arc<RwLock<HashMap<CellIdentifier, Value>>> = Arc::new(RwLock::new(HashMap::new()));
     let mut threads = Vec::new();
-    loop {
-        match manager.accept_new_connection() {
-            Connection::NewConnection { reader, writer } => {
-                let data = data.clone();
-                threads.push(std::thread::spawn(
-                    move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                        create_new_connection::<M>(reader, writer, data)
-                    },
-                ));
-            }
-            Connection::NoMoreConnections => {
-                break;
-            }
-        }
+    while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
+        let data = data.clone();
+        threads.push(std::thread::spawn(
+            move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                create_new_connection::<M>(reader, writer, data)
+            },
+        ));
     }
 
     for handle in threads {
@@ -142,10 +135,10 @@ fn set_expression(
 
     match expression.evaluate(&vars) {
         Ok(res) => {
-            if d.contains_key(&cell_identifier) {
-                if d.get(&cell_identifier).unwrap().time > SystemTime::now() {
-                    return;
-                }
+            if d.contains_key(&cell_identifier)
+                && d.get(&cell_identifier).unwrap().time > SystemTime::now()
+            {
+                return;
             }
             d.insert(
                 cell_identifier,
@@ -163,7 +156,7 @@ fn set_expression(
                 .iter()
                 .filter(|(_, value)| value.dep.contains(&cell_identifier))
                 .for_each(|(id, val)| {
-                    effected_values.push((id.clone(), val.clone()));
+                    effected_values.push((*id, val.clone()));
                 });
             effected_values.into_iter().for_each(|(id, val)| {
                 set_expression(id, val.expression, data.clone());
@@ -226,7 +219,7 @@ fn get_vars(
     variables_set.iter().for_each(|var| {
         if var.contains("_") {
             let mut ends = Vec::new();
-            var.split("_").into_iter().for_each(|elem| ends.push(elem));
+            var.split("_").for_each(|elem| ends.push(elem));
             // variables_set ensures that each String will be valid.
             // So either it has an _ and it has 2 elements or it doesnt and it have 1
             if ends.len() == 2 {
@@ -236,18 +229,18 @@ fn get_vars(
                     // same col
                     vars.insert(
                         var.clone(),
-                        CellArgument::Vector(get_var_column_values(start, end, &data)),
+                        CellArgument::Vector(get_var_column_values(start, end, data)),
                     );
                 } else if start.col != end.col && start.row == end.row {
                     // same row
                     vars.insert(
                         var.clone(),
-                        CellArgument::Vector(get_var_row_values(start, end, &data)),
+                        CellArgument::Vector(get_var_row_values(start, end, data)),
                     );
                 } else {
                     vars.insert(
                         var.clone(),
-                        CellArgument::Matrix(get_var_matrix_values(start, end, &data)),
+                        CellArgument::Matrix(get_var_matrix_values(start, end, data)),
                     );
                     // matrix
                 }
@@ -255,7 +248,7 @@ fn get_vars(
         } else {
             vars.insert(
                 var.clone(),
-                CellArgument::Value(get_single_value(var, &data)),
+                CellArgument::Value(get_single_value(var, data)),
             );
         }
     });
@@ -270,7 +263,7 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
     variables_set.iter().for_each(|var| {
         if var.contains("_") {
             let mut ends = Vec::new();
-            var.split("_").into_iter().for_each(|elem| {
+            var.split("_").for_each(|elem| {
                 ends.push(elem);
             });
             // variables_set ensures that each String will be valid.
@@ -281,7 +274,7 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
                 // have to insert all dependencies into set
                 if start.col == end.col && start.row != end.row {
                     // same col
-                    (start.row..=end.row).into_iter().for_each(|row| {
+                    (start.row..=end.row).for_each(|row| {
                         dep.insert(CellIdentifier {
                             col: start.col,
                             row,
@@ -289,7 +282,7 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
                     });
                 } else if start.col != end.col && start.row == end.row {
                     // same row
-                    (start.col..=end.col).into_iter().for_each(|col| {
+                    (start.col..=end.col).for_each(|col| {
                         dep.insert(CellIdentifier {
                             col,
                             row: start.row,
@@ -297,8 +290,8 @@ fn get_dependencies(variables_set: &HashSet<String>) -> HashSet<CellIdentifier> 
                     });
                 } else {
                     // neither same row or col
-                    (start.row..=end.row).into_iter().for_each(|row| {
-                        (start.col..=end.col).into_iter().for_each(|col| {
+                    (start.row..=end.row).for_each(|row| {
+                        (start.col..=end.col).for_each(|col| {
                             dep.insert(CellIdentifier { col, row });
                         });
                     });
