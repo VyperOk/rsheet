@@ -58,6 +58,7 @@ where
 {
     loop {
         // dbg!(data.clone());
+        let data = data.clone();
         info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
@@ -65,7 +66,6 @@ where
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
                 // change this code.
-                let data = data.clone();
                 let reply = match msg.trim().parse::<Command>() {
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
@@ -132,8 +132,12 @@ fn set_expression(
     cell_expr: String,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
+    // Is currently deadlocking on d
     let (expression, variables_set) = get_variables_set(&cell_expr);
+    // hangs here on recursive call
+    println!("arrived");
     let mut d = data.write().unwrap();
+    println!("left");
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
@@ -147,12 +151,18 @@ fn set_expression(
                     expression: cell_expr,
                 },
             );
-            d.clone()
+            drop(d);
+            let mut effected_values = Vec::new();
+            data.read()
+                .unwrap()
                 .iter()
                 .filter(|(_, value)| value.dep.contains(&cell_identifier))
                 .for_each(|(id, val)| {
-                    set_expression(id.clone(), val.expression.clone(), data.clone());
+                    effected_values.push((id.clone(), val.expression.clone()));
                 });
+            effected_values.into_iter().for_each(|(id, val)| {
+                set_expression(id, val, data.clone());
+            });
         }
         Err(_) => {
             d.insert(
@@ -165,6 +175,7 @@ fn set_expression(
                     expression: cell_expr,
                 },
             );
+            drop(d);
         }
     }
 }
