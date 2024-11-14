@@ -9,6 +9,7 @@ use rsheet_lib::replies::Reply;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::{Arc, RwLock};
+use std::time::SystemTime;
 
 use log::info;
 
@@ -17,6 +18,7 @@ struct Value {
     value: Result<CellValue, Reply>,
     dep: HashSet<CellIdentifier>,
     expression: String,
+    time: SystemTime,
 }
 
 // This should be all working except concurrency isnt done
@@ -132,23 +134,26 @@ fn set_expression(
     cell_expr: String,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
-    // Is currently deadlocking on d
+    // Need to look into if i need to make another thread to do updates
     let (expression, variables_set) = get_variables_set(&cell_expr);
-    // hangs here on recursive call
-    println!("arrived");
     let mut d = data.write().unwrap();
-    println!("left");
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
     match expression.evaluate(&vars) {
         Ok(res) => {
+            if d.contains_key(&cell_identifier) {
+                if d.get(&cell_identifier).unwrap().time > SystemTime::now() {
+                    return;
+                }
+            }
             d.insert(
                 cell_identifier,
                 Value {
                     value: Ok(res),
                     dep,
                     expression: cell_expr,
+                    time: SystemTime::now(),
                 },
             );
             drop(d);
@@ -158,10 +163,10 @@ fn set_expression(
                 .iter()
                 .filter(|(_, value)| value.dep.contains(&cell_identifier))
                 .for_each(|(id, val)| {
-                    effected_values.push((id.clone(), val.expression.clone()));
+                    effected_values.push((id.clone(), val.clone()));
                 });
             effected_values.into_iter().for_each(|(id, val)| {
-                set_expression(id, val, data.clone());
+                set_expression(id, val.expression, data.clone());
             });
         }
         Err(_) => {
@@ -173,6 +178,7 @@ fn set_expression(
                     ))),
                     dep,
                     expression: cell_expr,
+                    time: SystemTime::now(),
                 },
             );
             drop(d);
