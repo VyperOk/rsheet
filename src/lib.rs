@@ -68,7 +68,6 @@ where
         info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
-                dbg!(msg.clone());
                 // rsheet_lib already contains a FromStr<Command> (i.e. parse::<Command>)
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
@@ -79,7 +78,6 @@ where
                             // todo!();
                             let id = identifier_to_string(&cell_identifier);
                             let d = data.read().unwrap();
-                            dbg!(data.clone());
                             if let Some(value) = d.get(&cell_identifier) {
                                 match &value.value {
                                     Ok(val) => Reply::Value(id, val.clone()),
