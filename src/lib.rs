@@ -28,13 +28,20 @@ where
 {
     let data: Arc<RwLock<HashMap<CellIdentifier, Value>>> = Arc::new(RwLock::new(HashMap::new()));
     let mut threads = Vec::new();
-    while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
-        let data = data.clone();
-        threads.push(std::thread::spawn(
-            move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                create_new_connection::<M>(reader, writer, data)
-            },
-        ));
+    loop {
+        match manager.accept_new_connection() {
+            Connection::NewConnection { reader, writer } => {
+                let data = data.clone();
+                threads.push(std::thread::spawn(
+                    move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                        create_new_connection::<M>(reader, writer, data)
+                    },
+                ));
+            }
+            Connection::NoMoreConnections => {
+                break;
+            }
+        }
     }
 
     for handle in threads {
