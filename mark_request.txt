@@ -6,13 +6,59 @@ These questions are listed in the spec, and you must fill them out
 to receive marks for the Design Questions.
 
 ## Question 1:
-
+  - This would've worse than the current implementation. This is because bloats the 
+    code and doesnt make the best use of rusts enum features. A big thing in rust is
+    using their type system wherever possible. This allows for errors to be handled
+    correctly and if the data was to be used again or applied to you aren't just
+    having to remember where you used it, the rust compiler will not let you forget it
+  - This way is worse than the current implementation. This is because implementing the
+    FromStr trait, gives you a parse trait automatically. Parse is implemented by
+    default on all traits that implement FromStr, so if you implement FromStr, you
+    already get parse.
+  - This way is worse than the current implementation. The current way is better as it
+    allows for more commands to be added easier. If they were seperate structs, rust's
+    type system cannot help you. When you add a new command, you would be on your own
+    to ensure that you implement everything for it. This way, when you add a new
+    commmand, rust will ensure that everywhere you need to implement it, then it will
+    be done, otherwise it wont compile.
 ## Question 2:
-
+Lines 276/282 are the lines where I handle vectors, line 288 is where I handle matrices,
+line 296 is where i handle scalars. In these lines that I stated, they are practically
+identical, except the value of the variable calls a seperate function. Most of the
+code within the functions are similar. For the vectors they are the same except they
+are iterating on a different variable but doing the same within each iteration. For the 
+matrix it is just iterating through the variables and then doing the same thing. For the
+scalar it is just doing the same thing with no iteration. I think this way is okay, I
+could've made a function that iterates on bounds and takes another arg which to push.
+I think the way I did it is better as although it is longer maybe it is way less
+complicated and what is going on is quite clear. If there was a MatrixList variable I 
+would have to change my code a bit, I would have to change the seperation of the string
+to match the syntax of Matrices, which I imagine would be the same as matrices seperated
+by a ','. I would have to check for commas, if there was a comma split on it then rerun
+the same code I currently have, This would also allow for dependencies that aren't 
+just matrices, could have A1, B1, C2_E4, F5_F10 and this would accomodate for it.
 ## Question 3:
-
+In line 168 & 170 rusts data structure RwLock allows me to lock data to read only, so
+that if other threads need to access the data at any time it allows it as long as it 
+is also only accessing it with read. In other languages like C you can only lock and unlock
+reading and writing. Rust allows me to lock it only for reading which speeds up my code and
+makes it easier to work with. A bug that this helps me prevent is if I try to set an 
+A1 to 1 in one thread, and set some other data in another thread which takes a long time 
+(maybe sleep) and then get A1 immediately after. It is essentially a race to get the lock
+but with write lock in line 180, the first set will be able to read everything up it needs 
+up until it gets to the write lock, while the other thread is sleeping, either it beats
+the second thread or it is immediately waiting for the write thread which will allow it to
+lock the data before the get can read it. It allows me to lock for it for reading only 
+which is specific to rusts type system.
 ## Question 4:
-
+In line 19, a time attribute is in the Value struct, which stores the lastModified time.
+Whenever set_expression is called it is passed with a time value. If the stored time value
+is more recent than the parameter, then obviously the stored time is correct and it wont
+set anything, as seen in line 176. If the the parameter is more recent than the stored then it will change. 
+This way allows for sets to be called in time order so the last call takes preference. 
+Compared to execution order taking preference as the most recent called set should take
+preference always. I also couldve not taken time as a parameter and just got the time at 
+the beginning of the function as sleep is not blocking until line 173
 ## Question 5:
 
 # Questions to the Marker (OPTIONAL)
@@ -21,7 +67,7 @@ Remember: you don't have to fill these out; but if
 you want to get feedback on a particular element of
 your code; you can!
 
-1.
+1. is the way I locked and unlocked the data in set_Expression idiomatic? or am I better off using channels
 
 2.
 
