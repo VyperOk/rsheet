@@ -13,6 +13,11 @@ use std::time::SystemTime;
 
 use log::info;
 
+// This Fails
+// a: set A1 3
+// b: set A2 sleep_then(2000, 1)
+// b: get A1
+
 #[derive(Clone, Debug)]
 struct Value {
     value: Result<CellValue, Reply>,
@@ -59,11 +64,13 @@ where
     M: Manager + Send + 'static,
 {
     loop {
-        // dbg!(data.clone());
         let data = data.clone();
         info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
+                println!("ACTIVE");
+                dbg!(msg.clone());
+                dbg!(data.clone());
                 // rsheet_lib already contains a FromStr<Command> (i.e. parse::<Command>)
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
@@ -184,6 +191,7 @@ fn set_expression(
             drop(d);
         }
     }
+    drop(data);
 }
 /// function that takes:
 ///     - an expr which is the expression string from the user entered command.
