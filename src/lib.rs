@@ -75,10 +75,8 @@ where
                 let reply = match msg.trim().parse::<Command>() {
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
-                            // todo!();
                             let id = identifier_to_string(&cell_identifier);
                             let d = data.read().unwrap();
-                            println!("{}{:?}", msg.clone(), data.clone());
                             if let Some(value) = d.get(&cell_identifier) {
                                 match &value.value {
                                     Ok(val) => Reply::Value(id, val.clone()),
@@ -92,9 +90,7 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            // todo!();
                             set_expression(cell_identifier, cell_expr.clone(), data.clone());
-                            println!("{}{:?}", msg.clone(), data.clone());
                             continue;
                         }
                     },
