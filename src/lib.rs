@@ -11,13 +11,6 @@ use std::error::Error;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
-use log::info;
-
-// This Fails
-// a: set A1 3
-// b: set A2 sleep_then(2000, 1)
-// b: get A1
-
 #[derive(Clone, Debug)]
 struct Value {
     value: Result<CellValue, Reply>,
@@ -26,7 +19,9 @@ struct Value {
     time: SystemTime,
 }
 
-// This should be all working except concurrency isnt done
+/// this function takes in a manager from main
+/// creates threads to handle connections from different users
+/// returns an error if there is any
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     M: Manager + Send + 'static,
@@ -48,6 +43,11 @@ where
     Ok(())
 }
 
+/// This function takes
+///     - the receiver reader which contains the data from user about their messages
+///     - the writer reader which is the pathway to communicate from the program to the user
+/// returns
+///     - an error if there is any
 fn create_new_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
     mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
@@ -57,8 +57,6 @@ where
     M: Manager + Send + 'static,
 {
     loop {
-        let data = data.clone();
-        info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
                 // rsheet_lib already contains a FromStr<Command> (i.e. parse::<Command>)
@@ -83,7 +81,12 @@ where
                             cell_identifier,
                             cell_expr,
                         } => {
-                            set_expression(cell_identifier, cell_expr.clone(), data.clone());
+                            set_expression(
+                                cell_identifier,
+                                cell_expr.clone(),
+                                SystemTime::now(),
+                                data.clone(),
+                            );
                             continue;
                         }
                     },
@@ -127,9 +130,9 @@ where
 fn set_expression(
     cell_identifier: CellIdentifier,
     cell_expr: String,
+    time: SystemTime,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
-    // Need to look into if i need to make another thread to do updates
     let (expression, variables_set) = get_variables_set(&cell_expr);
     let d = data.read().unwrap();
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
@@ -139,9 +142,7 @@ fn set_expression(
     match expression.evaluate(&vars) {
         Ok(res) => {
             let d = data.read().unwrap();
-            if d.contains_key(&cell_identifier)
-                && d.get(&cell_identifier).unwrap().time > SystemTime::now()
-            {
+            if d.contains_key(&cell_identifier) && d.get(&cell_identifier).unwrap().time > time {
                 return;
             }
             drop(d);
@@ -152,7 +153,7 @@ fn set_expression(
                     value: Ok(res),
                     dep,
                     expression: cell_expr,
-                    time: SystemTime::now(),
+                    time,
                 },
             );
             drop(d);
@@ -165,7 +166,7 @@ fn set_expression(
                     effected_values.push((*id, val.clone()));
                 });
             effected_values.into_iter().for_each(|(id, val)| {
-                set_expression(id, val.expression, data.clone());
+                set_expression(id, val.expression, SystemTime::now(), data.clone());
             });
         }
         Err(_) => {
@@ -204,10 +205,14 @@ fn get_variables_set(expr: &str) -> (CellExpr, HashSet<String>) {
 }
 
 /// function to convert CellIdentifier into a string
-/// e.g. from CellIdentifier {
-///     col: 0,
-///     row: 0,
-/// } to "A1"
+/// e.g.
+/// from
+///     CellIdentifier {
+///         col: 0,
+///         row: 0,
+///     }
+/// to
+///     "A1"
 fn identifier_to_string(id: &CellIdentifier) -> String {
     let col = rsheet_lib::cells::column_number_to_name(id.col);
     format!("{}{}", col, id.row + 1)
