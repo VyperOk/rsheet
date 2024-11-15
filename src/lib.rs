@@ -8,7 +8,8 @@ use rsheet_lib::replies::Reply;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
 #[derive(Clone, Debug)]
@@ -28,11 +29,25 @@ where
 {
     let data: Arc<RwLock<HashMap<CellIdentifier, Value>>> = Arc::new(RwLock::new(HashMap::new()));
     let mut threads = Vec::new();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = Arc::new(Mutex::new(tx));
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    {
+        let tx = tx.clone();
+        let stop_flag = stop_flag.clone();
+        std::thread::spawn(move || {
+            while stop_flag.load(Ordering::Relaxed) == false {
+                let (cell_identifier, cell_expr, time, data) = rx.recv().unwrap();
+                set_expression(cell_identifier, cell_expr, time, data, tx.clone());
+            }
+        });
+    }
     while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
         let data = data.clone();
+        let tx = tx.clone();
         threads.push(std::thread::spawn(
             move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                create_new_connection::<M>(reader, writer, data)
+                create_new_connection::<M>(reader, writer, data, tx)
             },
         ));
     }
@@ -40,6 +55,7 @@ where
     for handle in threads {
         handle.join().unwrap()?;
     }
+    stop_flag.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -52,6 +68,16 @@ fn create_new_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
     mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+    tx: Arc<
+        Mutex<
+            std::sync::mpsc::Sender<(
+                CellIdentifier,
+                String,
+                SystemTime,
+                Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+            )>,
+        >,
+    >,
 ) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     M: Manager + Send + 'static,
@@ -86,6 +112,7 @@ where
                                 cell_expr.clone(),
                                 SystemTime::now(),
                                 data.clone(),
+                                tx.clone(),
                             );
                             continue;
                         }
@@ -132,6 +159,16 @@ fn set_expression(
     cell_expr: String,
     time: SystemTime,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+    tx: Arc<
+        Mutex<
+            std::sync::mpsc::Sender<(
+                CellIdentifier,
+                String,
+                SystemTime,
+                Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+            )>,
+        >,
+    >,
 ) {
     let (expression, variables_set) = get_variables_set(&cell_expr);
     let d = data.read().unwrap();
@@ -166,7 +203,11 @@ fn set_expression(
                     effected_values.push((*id, val.clone()));
                 });
             effected_values.into_iter().for_each(|(id, val)| {
-                set_expression(id, val.expression, SystemTime::now(), data.clone());
+                let d = data.clone();
+                let _ = tx
+                    .lock()
+                    .unwrap()
+                    .send((id, val.expression, SystemTime::now(), d));
             });
         }
         Err(_) => {
