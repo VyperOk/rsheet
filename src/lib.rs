@@ -70,7 +70,6 @@ where
             ReadMessageResult::Message(msg) => {
                 println!("ACTIVE");
                 dbg!(msg.clone());
-                dbg!(data.clone());
                 // rsheet_lib already contains a FromStr<Command> (i.e. parse::<Command>)
                 // implementation for parsing the get and set commands. This is just a
                 // demonstration of how to use msg.parse::<Command>, you may want/have to
@@ -81,6 +80,7 @@ where
                             // todo!();
                             let id = identifier_to_string(&cell_identifier);
                             let d = data.read().unwrap();
+                            dbg!(data.clone());
                             if let Some(value) = d.get(&cell_identifier) {
                                 match &value.value {
                                     Ok(val) => Reply::Value(id, val.clone()),
@@ -142,8 +142,8 @@ fn set_expression(
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
     // Need to look into if i need to make another thread to do updates
-    let (expression, variables_set) = get_variables_set(&cell_expr);
     let mut d = data.write().unwrap();
+    let (expression, variables_set) = get_variables_set(&cell_expr);
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
