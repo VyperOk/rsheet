@@ -8,6 +8,7 @@ use rsheet_lib::replies::Reply;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
@@ -18,6 +19,13 @@ struct Value {
     expression: String,
     time: SystemTime,
 }
+
+type CellSender = Sender<(
+    CellIdentifier,
+    String,
+    SystemTime,
+    Arc<RwLock<HashMap<CellIdentifier, Value>>>,
+)>;
 
 /// this function takes in a manager from main
 /// creates threads to handle connections from different users
@@ -62,16 +70,7 @@ fn create_new_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
     mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
-    tx: Arc<
-        Mutex<
-            std::sync::mpsc::Sender<(
-                CellIdentifier,
-                String,
-                SystemTime,
-                Arc<RwLock<HashMap<CellIdentifier, Value>>>,
-            )>,
-        >,
-    >,
+    tx: Arc<Mutex<CellSender>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     M: Manager + Send + 'static,
@@ -153,16 +152,7 @@ fn set_expression(
     cell_expr: String,
     time: SystemTime,
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
-    tx: Arc<
-        Mutex<
-            std::sync::mpsc::Sender<(
-                CellIdentifier,
-                String,
-                SystemTime,
-                Arc<RwLock<HashMap<CellIdentifier, Value>>>,
-            )>,
-        >,
-    >,
+    tx: Arc<Mutex<CellSender>>,
 ) {
     let (expression, variables_set) = get_variables_set(&cell_expr);
     let d = data.read().unwrap();
