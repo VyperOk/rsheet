@@ -40,16 +40,22 @@ just matrices, could have A1, B1, C2_E4, F5_F10 and this would accomodate for it
 ## Question 3:
 In line 168 & 170 rusts data structure RwLock allows me to lock data to read only, so
 that if other threads need to access the data at any time it allows it as long as it 
-is also only accessing it with read. In other languages like C you can only lock and unlock
-reading and writing. Rust allows me to lock it only for reading which speeds up my code and
-makes it easier to work with. A bug that this helps me prevent is if I try to set an 
-A1 to 1 in one thread, and set some other data in another thread which takes a long time 
-(maybe sleep) and then get A1 immediately after. It is essentially a race to get the lock
-but with write lock in line 180, the first set will be able to read everything up it needs 
-up until it gets to the write lock, while the other thread is sleeping, either it beats
-the second thread or it is immediately waiting for the write thread which will allow it to
-lock the data before the get can read it. It allows me to lock for it for reading only 
-which is specific to rusts type system.
+is also only accessing it with read. Rust allows me to lock it only for reading which
+speeds up my code and makes it easier to work with. A bug that this helps me prevent is
+if I try to set an A1 to 1 in one thread, and set some other data in another thread which
+takes a long time (maybe sleep) and then get A1 immediately after. It is essentially a
+race to get the lock but with write lock in line 180, the first set will be able to read
+everything up it needs up until it gets to the write lock, while the other thread is
+sleeping, either it beats the second thread or it is immediately waiting for the write
+thread which will allow it to lock the data before the get can read it. It allows me to
+lock for it for reading only which is specific to rusts type system.
+In lines 31-39 rusts data structure channel in mpsc allowed me to have a single worker
+thread. Rusts type system forces me to clone the tx before transmitting as I pass ownership 
+to the thread in in the function I call it takes ownership and drops it after the scope ends.
+If rust did not make me clone it I could've not taken a copy when passing into 
+create_new_connection and I could either have got a use after free error. Using the
+channels, it allowed me to not have to worry about unlocking tx from the lock in line 202
+as rusts type system automatically unlocks upon the variable going out of scope
 ## Question 4:
 In line 19, a time attribute is in the Value struct, which stores the lastModified time.
 Whenever set_expression is called it is passed with a time value. If the stored time value
@@ -60,14 +66,34 @@ Compared to execution order taking preference as the most recent called set shou
 preference always. I also couldve not taken time as a parameter and just got the time at 
 the beginning of the function as sleep is not blocking until line 173
 ## Question 5:
-
+When A1 is set to 7, in create_new_connection, rec.read_message() gets the message and 
+the execution is un-blocked, the message is then parsed into a command, it is then parsed
+into the set command and I clone my data and pass it into the set_expression function in
+line 104-110. The expression is evaluated using rsheet_lib and A1 is set to 7 at 
+lines 180-189. After A1 is set, it goes through the data and finds cells that have A1 a
+dependency, where I make an array storing those cells in lines 191-198. Then for every
+effected cell, I send the id, expression, time and data to the worker thread in lines 199-205.
+The lock on the channel unlocks after it sends as it goes out of scope and all the effected
+cells are sent to the worker thread aswell as my data. In my worker thread it then
+re-executes the set_expression function. So the first cell that the worker thread sees will
+be B1 as A1 is in its dependencies. It will then redo the steps above like setting B1 to
+the value of A1, then it will look for the cells which have B1 as a dependencies and send it
+to the worker thread. This will send C1 to the worker thread and it will re-evaluate its
+value based on the change in B1. As there are no dependencies on C1 it will conclude
+execution in the function and worker thread will go to the next message which in this case
+there is none but it will wait until it receives another message. The only other time that
+data is passed between thread is the creation of new connections. So the data is passed into
+a new thread originally when this connection is started in line 45.
 # Questions to the Marker (OPTIONAL)
 
 Remember: you don't have to fill these out; but if
 you want to get feedback on a particular element of
 your code; you can!
 
-1. is the way I locked and unlocked the data in set_Expression idiomatic? or am I better off using channels
+1. I dont have anywhere specific but as much feedback as you are willing to give would be
+  appreciated. I understand I should've probably seperated into another file or two and I 
+  couldve made the functions a bit smaller and made more but the style marks were only for
+  clippy and rustfmt
 
 2.
 
