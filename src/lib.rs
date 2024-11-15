@@ -141,18 +141,22 @@ fn set_expression(
     data: Arc<RwLock<HashMap<CellIdentifier, Value>>>,
 ) {
     // Need to look into if i need to make another thread to do updates
-    let mut d = data.write().unwrap();
     let (expression, variables_set) = get_variables_set(&cell_expr);
+    let d = data.read().unwrap();
     let vars: HashMap<String, CellArgument> = get_vars(&variables_set, &d);
+    drop(d);
     let dep: HashSet<_> = get_dependencies(&variables_set);
 
     match expression.evaluate(&vars) {
         Ok(res) => {
+            let d = data.read().unwrap();
             if d.contains_key(&cell_identifier)
                 && d.get(&cell_identifier).unwrap().time > SystemTime::now()
             {
                 return;
             }
+            drop(d);
+            let mut d = data.write().unwrap();
             d.insert(
                 cell_identifier,
                 Value {
@@ -176,6 +180,7 @@ fn set_expression(
             });
         }
         Err(_) => {
+            let mut d = data.write().unwrap();
             d.insert(
                 cell_identifier,
                 Value {
