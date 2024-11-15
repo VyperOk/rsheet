@@ -8,7 +8,6 @@ use rsheet_lib::replies::Reply;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
@@ -31,15 +30,11 @@ where
     let mut threads = Vec::new();
     let (tx, rx) = std::sync::mpsc::channel();
     let tx = Arc::new(Mutex::new(tx));
-    let stop_flag = Arc::new(AtomicBool::new(false));
     {
         let tx = tx.clone();
-        let stop_flag = stop_flag.clone();
-        std::thread::spawn(move || {
-            while stop_flag.load(Ordering::Relaxed) == false {
-                let (cell_identifier, cell_expr, time, data) = rx.recv().unwrap();
-                set_expression(cell_identifier, cell_expr, time, data, tx.clone());
-            }
+        std::thread::spawn(move || loop {
+            let (cell_identifier, cell_expr, time, data) = rx.recv().unwrap();
+            set_expression(cell_identifier, cell_expr, time, data, tx.clone());
         });
     }
     while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
@@ -55,7 +50,6 @@ where
     for handle in threads {
         handle.join().unwrap()?;
     }
-    stop_flag.store(true, Ordering::Relaxed);
     Ok(())
 }
 
