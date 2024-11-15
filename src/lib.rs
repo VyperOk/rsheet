@@ -68,7 +68,6 @@ where
         info!("Just got message");
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
-                println!("ACTIVE");
                 dbg!(msg.clone());
                 // rsheet_lib already contains a FromStr<Command> (i.e. parse::<Command>)
                 // implementation for parsing the get and set commands. This is just a
